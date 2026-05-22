@@ -1,4 +1,7 @@
-url,brand_name,priority
-https://www.apple.com/airpods-pro/,Apple,high
-https://www.nike.com/t/air-max-270,Nike,normal
-https://www.shopify.com/,Shopify,normal
+url,brand_name,priority,extra_instructions
+https://www.apple.com/airpods-pro/,Apple,high,Emphasize noise cancellation and premium feel
+https://www.sony.com/electronics/headband-headphones/wh-1000xm5,Sony,normal,Focus on comfort for long listening sessions
+https://www.nike.com/t/air-max-270-mens-shoes-KkLcGR,Nike,normal,Highlight lifestyle and streetwear vibe
+https://www.dyson.com/vacuum-cleaners/cordless/v15/detect,Dyson,high,Show before/after cleaning scenes
+https://www.nintendo.com/us/store/products/nintendo-switch-oled-model-white-set/,Nintendo,normal,Family-friendly gaming moments
+Help

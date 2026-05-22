@@ -13,6 +13,7 @@ import json
 import asyncio
 import structlog
 from celery import Celery
+from models.schemas import Priority
 
 logger = structlog.get_logger()
 
@@ -78,7 +79,14 @@ def get_job_progress(job_id: str) -> dict:
 # ─── Celery Tasks ─────────────────────────────────────────────────────────────
 
 @celery_app.task(bind=True, name="api.celery_app.process_single_url")
-def process_single_url(self, job_id: str, url: str):
+def process_single_url(
+    self,
+    job_id: str,
+    url: str,
+    brand_name: str | None = None,
+    extra_instructions: str | None = None,
+    priority: Priority | None = None,
+):
     """
     Celery task: Run the full multi-agent workflow for a single URL.
     """
@@ -108,7 +116,15 @@ def process_single_url(self, job_id: str, url: str):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            final_state = loop.run_until_complete(run_workflow(url, job_id=job_id))
+            final_state = loop.run_until_complete(
+                run_workflow(
+                    url,
+                    job_id=job_id,
+                    brand_name=brand_name,
+                    extra_instructions=extra_instructions,
+                    priority=priority,
+                )
+            )
         finally:
             loop.close()
             clear_progress_callback()
@@ -151,7 +167,13 @@ def process_bulk_batch(self, batch_id: str, jobs: list[dict]):
         r.hincrby(f"batch:{batch_id}", "pending", -1)
         r.hincrby(f"batch:{batch_id}", "running", 1)
         task = process_single_url.apply_async(
-            kwargs={"job_id": job["job_id"], "url": job["url"]},
+            kwargs={
+                "job_id": job["job_id"],
+                "url": job["url"],
+                "brand_name": job.get("brand_name"),
+                "extra_instructions": job.get("extra_instructions"),
+                "priority": job.get("priority"),
+            },
             queue=queue,
             link=_on_job_complete.s(batch_id=batch_id),
             link_error=_on_job_error.s(batch_id=batch_id),

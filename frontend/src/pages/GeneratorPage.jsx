@@ -54,6 +54,9 @@ function StepItem({ step, status }) {
 
 export default function GeneratorPage({ onJobComplete }) {
   const [url, setUrl] = useState("");
+  const [brandName, setBrandName] = useState("");
+  const [priority, setPriority] = useState("normal");
+  const [extraInstructions, setExtraInstructions] = useState("");
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -109,7 +112,12 @@ export default function GeneratorPage({ onJobComplete }) {
     setProgress(0);
 
     try {
-      const { data } = await axios.post(`${API}/api/generate`, { url });
+      const { data } = await axios.post(`${API}/api/generate`, {
+        url,
+        brand_name: brandName.trim() || null,
+        priority,
+        extra_instructions: extraInstructions.trim() || null,
+      });
       setJobId(data.job_id);
       setStatus("running");
       startPolling(data.job_id);
@@ -170,6 +178,35 @@ export default function GeneratorPage({ onJobComplete }) {
             {loading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             Generate
           </button>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3">
+          <input
+            type="text"
+            value={brandName}
+            onChange={(e) => setBrandName(e.target.value)}
+            placeholder="Brand name (optional)"
+            disabled={loading || status === "running"}
+            className="bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 focus:outline-none focus:border-violet-500/60 focus:bg-violet-500/5 transition-all disabled:opacity-50"
+          />
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            disabled={loading || status === "running"}
+            className="bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500/60 focus:bg-violet-500/5 transition-all disabled:opacity-50"
+          >
+            <option value="high">High priority</option>
+            <option value="normal">Normal priority</option>
+            <option value="low">Low priority</option>
+          </select>
+          <input
+            type="text"
+            value={extraInstructions}
+            onChange={(e) => setExtraInstructions(e.target.value)}
+            placeholder="Extra creative instructions (optional)"
+            disabled={loading || status === "running"}
+            className="bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 focus:outline-none focus:border-violet-500/60 focus:bg-violet-500/5 transition-all disabled:opacity-50"
+          />
         </div>
 
         {/* Demo URLs */}

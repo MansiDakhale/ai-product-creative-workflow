@@ -4,16 +4,17 @@ import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, ExternalLink } fr
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
-const SAMPLE_CSV = `url,brand_name,priority
-https://www.amazon.com/dp/B08N5WRWNW,Amazon,high
-https://www.apple.com/airpods-pro/,Apple,normal
-https://www.nike.com/t/air-max-270,Nike,normal`;
+const SAMPLE_CSV = `url,brand_name,priority,extra_instructions
+https://www.apple.com/airpods-pro/,Apple,high,Emphasize noise cancellation and premium feel
+https://www.sony.com/electronics/headband-headphones/wh-1000xm5,Sony,normal,Focus on comfort for long listening sessions
+https://www.nike.com/t/air-max-270-mens-shoes-KkLcGR,Nike,normal,Highlight lifestyle and streetwear vibe`;
 
 export default function BulkPage() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [batchResult, setBatchResult] = useState(null);
   const [batchStatus, setBatchStatus] = useState(null);
+  const [parseErrors, setParseErrors] = useState([]);
   const [error, setError] = useState("");
   const fileRef = useRef();
   const pollRef = useRef();
@@ -25,6 +26,7 @@ export default function BulkPage() {
       return;
     }
     setError("");
+    setParseErrors([]);
     setFile(f);
   };
 
@@ -37,6 +39,7 @@ export default function BulkPage() {
     if (!file) return;
     setUploading(true);
     setError("");
+    setParseErrors([]);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -46,6 +49,7 @@ export default function BulkPage() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setBatchResult(data);
+      setParseErrors(data.errors || []);
       startPollingBatch(data.batch_id);
     } catch (e) {
       setError(e.response?.data?.detail || "Upload failed");
@@ -110,6 +114,7 @@ export default function BulkPage() {
           <div><span className="text-white/60">url</span> — Product page URL (required)</div>
           <div><span className="text-white/60">brand_name</span> — Override brand name (optional)</div>
           <div><span className="text-white/60">priority</span> — high / normal / low (optional)</div>
+          <div><span className="text-white/60">extra_instructions</span> — Extra creative guidance (optional)</div>
         </div>
       </div>
 
@@ -152,6 +157,18 @@ export default function BulkPage() {
         <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300">
           <AlertCircle size={16} />
           {error}
+        </div>
+      )}
+
+      {parseErrors.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm text-amber-200 space-y-1">
+          <div className="font-semibold">Rows skipped during parsing</div>
+          {parseErrors.slice(0, 6).map((msg, i) => (
+            <div key={i}>{msg}</div>
+          ))}
+          {parseErrors.length > 6 && (
+            <div>...and {parseErrors.length - 6} more</div>
+          )}
         </div>
       )}
 

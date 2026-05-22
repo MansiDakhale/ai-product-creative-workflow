@@ -60,12 +60,14 @@ Return ONLY valid JSON. No markdown, no explanation.
 """
 
 
-def build_strategy_prompt(product_data) -> str:
+def build_strategy_prompt(product_data, extra_instructions: str | None = None) -> str:
     features_text = "\n".join(f"• {f}" for f in product_data.features) if product_data.features else "Not specified"
     specs_text = "\n".join(f"  {k}: {v}" for k, v in product_data.specifications.items()) if product_data.specifications else "Not specified"
     reviews_text = ""
     if product_data.reviews:
         reviews_text = f"Rating: {product_data.reviews.rating}/5 ({product_data.reviews.count} reviews)\n{product_data.reviews.summary}"
+
+    extra = f"\nEXTRA INSTRUCTIONS: {extra_instructions}" if extra_instructions else ""
 
     return f"""Create a complete creative strategy for this product:
 
@@ -86,7 +88,7 @@ SPECIFICATIONS:
 TARGET AUDIENCE: {product_data.target_audience}
 USP: {product_data.usp}
 
-REVIEWS: {reviews_text if reviews_text else 'No review data available'}
+REVIEWS: {reviews_text if reviews_text else 'No review data available'}{extra}
 
 Generate creative strategy that makes people stop scrolling and want to buy immediately.
 Think about what emotions this product triggers, what transformation it enables,
@@ -113,7 +115,7 @@ async def run_creative_strategy(state: WorkflowState, groq_client) -> WorkflowSt
     logger.info("agent2_creative_strategy_start", job_id=state.job_id)
 
     try:
-        user_prompt = build_strategy_prompt(state.product_data)
+        user_prompt = build_strategy_prompt(state.product_data, state.extra_instructions)
 
         model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         fallback_model = os.getenv("GROQ_FALLBACK_MODEL")

@@ -161,6 +161,9 @@ class WorkflowState(BaseModel):
     retry_count: int = 0
     max_retries: int = 2
     error: Optional[str] = None
+    brand_name: Optional[str] = None
+    extra_instructions: Optional[str] = None
+    priority: Priority = Priority.NORMAL
 
     # Agent outputs (populated as workflow progresses)
     product_data: Optional[ProductData] = None
@@ -202,6 +205,7 @@ class BulkUploadResponse(BaseModel):
     total_jobs: int
     job_ids: list[str]
     status: str = "queued"
+    errors: list[str] = []
 
 
 class BulkStatusResponse(BaseModel):

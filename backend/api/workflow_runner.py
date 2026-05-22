@@ -12,7 +12,8 @@ import traceback
 import structlog
 from celery import states
 
-from api.celery_app import celery_app, set_job_progress
+from api.celery_app import celery_app, set_job_progress, _get_redis
+from models.schemas import Priority
 
 logger = structlog.get_logger()
 
@@ -27,7 +28,14 @@ def use_inline_worker() -> bool:
     return sys.platform == "win32"
 
 
-def run_workflow_sync(job_id: str, url: str) -> None:
+def run_workflow_sync(
+    job_id: str,
+    url: str,
+    brand_name: str | None = None,
+    extra_instructions: str | None = None,
+    priority: Priority | None = None,
+    batch_id: str | None = None,
+) -> None:
     """Execute workflow in-process and persist status to Celery's Redis result backend."""
     from graph import run_workflow
     from utils.progress import set_progress_callback, clear_progress_callback
@@ -51,7 +59,15 @@ def run_workflow_sync(job_id: str, url: str) -> None:
         celery_app.backend.store_result(
             job_id, {"step": "starting", "progress": 5}, states.STARTED
         )
-        final_state = loop.run_until_complete(run_workflow(url, job_id=job_id))
+        final_state = loop.run_until_complete(
+            run_workflow(
+                url,
+                job_id=job_id,
+                brand_name=brand_name,
+                extra_instructions=extra_instructions,
+                priority=priority,
+            )
+        )
         # `final_state` may be a Pydantic `BaseModel` (has `model_dump`) or
         # already a plain `dict` depending on LangGraph internals. Handle both.
         def serialize_obj(o):
@@ -89,6 +105,13 @@ def run_workflow_sync(job_id: str, url: str) -> None:
                 result = {"state": str(final_state)}
         set_job_progress(job_id, "completed", 100)
         celery_app.backend.store_result(job_id, result, states.SUCCESS)
+        if batch_id:
+            try:
+                r = _get_redis()
+                r.hincrby(f"batch:{batch_id}", "completed", 1)
+                r.hincrby(f"batch:{batch_id}", "running", -1)
+            except Exception:
+                pass
         logger.info("inline_workflow_complete", job_id=job_id)
     except Exception as e:
         logger.error("inline_workflow_failed", job_id=job_id, error=str(e))
@@ -98,6 +121,13 @@ def run_workflow_sync(job_id: str, url: str) -> None:
             exc=e,
             traceback=traceback.format_exc(),
         )
+        if batch_id:
+            try:
+                r = _get_redis()
+                r.hincrby(f"batch:{batch_id}", "failed", 1)
+                r.hincrby(f"batch:{batch_id}", "running", -1)
+            except Exception:
+                pass
         raise
     finally:
         loop.close()

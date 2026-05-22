@@ -164,6 +164,8 @@ async def run_product_research(state: WorkflowState, groq_client) -> WorkflowSta
             **_coerce_product_dict(product_dict),
             reviews=reviews,
         )
+        if state.brand_name:
+            state.product_data.brand = state.brand_name
 
         logger.info(
             "agent1_complete",
@@ -176,6 +178,8 @@ async def run_product_research(state: WorkflowState, groq_client) -> WorkflowSta
     except (json.JSONDecodeError, ValidationError) as e:
         logger.warning("product_data_fallback", error=str(e), job_id=state.job_id)
         state.product_data = _product_from_scraped(scraped, state.url)
+        if state.brand_name:
+            state.product_data.brand = state.brand_name
     except Exception as e:
         # If Groq rate limiting or other API errors occur, stop retrying and
         # mark the workflow as failed with a clear error message. Tenacity

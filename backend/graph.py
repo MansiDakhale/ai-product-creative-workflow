@@ -24,7 +24,7 @@ from typing import Literal
 
 from langgraph.graph import StateGraph, END, START
 
-from models.schemas import WorkflowState, JobStatus
+from models.schemas import WorkflowState, JobStatus, Priority
 from utils.progress import report_progress
 from utils.storage import save_workflow_artifacts
 from agents.product_research import run_product_research
@@ -228,7 +228,13 @@ def build_workflow_graph() -> StateGraph:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-async def run_workflow(url: str, job_id: str | None = None) -> WorkflowState:
+async def run_workflow(
+    url: str,
+    job_id: str | None = None,
+    brand_name: str | None = None,
+    extra_instructions: str | None = None,
+    priority: Priority | None = None,
+) -> WorkflowState:
     """
     Run the full multi-agent workflow for a given product URL.
     
@@ -239,10 +245,20 @@ async def run_workflow(url: str, job_id: str | None = None) -> WorkflowState:
     Returns:
         Final WorkflowState with all generated assets
     """
+    resolved_priority = Priority.NORMAL
+    if priority is not None:
+        try:
+            resolved_priority = Priority(priority)
+        except Exception:
+            resolved_priority = Priority.NORMAL
+
     initial_state = WorkflowState(
         url=url,
         started_at=datetime.now(timezone.utc),
         status=JobStatus.RUNNING,
+        brand_name=brand_name,
+        extra_instructions=extra_instructions,
+        priority=resolved_priority,
     )
     if job_id:
         initial_state.job_id = job_id

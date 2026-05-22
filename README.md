@@ -153,7 +153,8 @@ OUTPUT_DIR=./outputs
 VITE_API_URL=
 ```
 
-A root-level `sample_products.csv` is included for bulk upload demos.
+A root-level `sample_products.csv` is included for bulk upload demos with
+`brand_name`, `priority`, and `extra_instructions` columns.
 ```
 
 ### 3. Start Services
@@ -173,6 +174,7 @@ celery -A api.celery_app worker --loglevel=info
 # Windows: Celery prefork pool crashes — either skip Celery (API runs jobs inline)
 # or use solo pool:  .\scripts\start-celery-windows.ps1
 # Default on Windows: only Redis + uvicorn + frontend are required.
+# Bulk CSV runs inline on Windows (background tasks) when Celery is disabled.
 
 # Terminal 3: FastAPI
 uvicorn api.main:app --reload --port 8000
@@ -183,6 +185,52 @@ npm run dev
 ```
 
 App runs at: **http://localhost:5173**
+
+---
+
+## ☁️ Deployment (Vercel + Render)
+
+Minimal working deployment using a single Render service (API + Celery worker in one process) plus Redis.
+
+### Frontend (Vercel)
+
+1. Import the repo in Vercel.
+2. Set Root Directory to `frontend`.
+3. Build command: `npm run build` (default).
+4. Output directory: `dist` (default).
+5. Environment variable:
+
+```env
+VITE_API_URL=https://YOUR_RENDER_BACKEND.onrender.com
+```
+
+### Backend (Render)
+
+1. Create a new Render Blueprint and select the repo.
+2. Render will pick up [render.yaml](render.yaml) and provision:
+  - A Python web service (FastAPI + Celery worker in one process)
+  - A Redis service for queue + job status
+3. Set required environment variables in the Render dashboard:
+
+```env
+GROQ_API_KEY=
+TOGETHER_API_KEY=
+REPLICATE_API_KEY=
+HF_TOKEN=
+# Optional
+STABILITY_API_KEY=
+STABILITY_API_URL=
+```
+
+4. Confirm the API is live:
+
+```
+GET https://YOUR_RENDER_BACKEND.onrender.com/health
+```
+
+Notes:
+- Outputs are stored in a Render disk at `/var/data/outputs` and served from `/outputs/*`.
+- Bulk CSV requires Celery; the Render start command runs a worker alongside the API for the demo.
 
 ---
 
@@ -237,7 +285,7 @@ progressing when API quotas are exhausted.
 ```bash
 curl -X POST http://localhost:8000/api/generate \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.amazon.com/dp/B08N5WRWNW"}'
+  -d '{"url": "https://www.amazon.com/dp/B08N5WRWNW", "brand_name": "Amazon", "priority": "normal", "extra_instructions": "Focus on product durability"}'
 ```
 
 ### Example: CSV Bulk Upload
@@ -249,9 +297,9 @@ curl -X POST http://localhost:8000/api/bulk \
 
 CSV format:
 ```csv
-url,brand_name,priority
-https://example.com/product-1,BrandA,high
-https://example.com/product-2,BrandB,normal
+url,brand_name,priority,extra_instructions
+https://example.com/product-1,BrandA,high,Highlight premium materials
+https://example.com/product-2,BrandB,normal,Emphasize everyday use
 ```
 
 ---

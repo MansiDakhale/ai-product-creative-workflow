@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ai-product-creative-backend
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash -lc "celery -A api.celery_app.celery_app worker -l info -Q high,normal,low --concurrency 1 & uvicorn api.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ai-product-creative-redis
+          property: connectionString
+      - key: OUTPUT_DIR
+        value: /var/data/outputs
+    disk:
+      name: outputs
+      mountPath: /var/data
+      sizeGB: 1
+
+  - type: redis
+    name: ai-product-creative-redis
+    plan: free

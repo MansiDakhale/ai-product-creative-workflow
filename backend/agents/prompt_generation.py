@@ -83,13 +83,15 @@ Video 2: Lifestyle/use-case video (person using the product, emotional connectio
 Return ONLY valid JSON."""
 
 
-def build_image_prompt_request(product_data, creative_strategy) -> str:
+def build_image_prompt_request(product_data, creative_strategy, extra_instructions: str | None = None) -> str:
     themes = [
         f"Theme '{t.name}': {t.mood}, colors: {', '.join(t.color_palette)}, "
         f"composition: {t.composition_notes}"
         for t in (creative_strategy.visual_themes or [])
     ]
     themes_text = "\n".join(themes) if themes else "No specific themes defined"
+
+    extra = f"\nEXTRA INSTRUCTIONS: {extra_instructions}" if extra_instructions else ""
 
     return f"""Generate 5 optimized image generation prompts for this product:
 
@@ -102,14 +104,16 @@ PRIMARY HOOK: {creative_strategy.primary_hook}
 
 VISUAL THEMES TO USE:
 {themes_text}
-
+{extra}
 Create professional product marketing images that look like they were shot by
 a high-end commercial photographer for a premium brand campaign."""
 
 
-def build_video_prompt_request(product_data, creative_strategy) -> str:
+def build_video_prompt_request(product_data, creative_strategy, extra_instructions: str | None = None) -> str:
     hooks = [creative_strategy.primary_hook] + creative_strategy.secondary_hooks[:2]
     hooks_text = "\n".join(f"• {h}" for h in hooks)
+
+    extra = f"\nEXTRA INSTRUCTIONS: {extra_instructions}" if extra_instructions else ""
 
     return f"""Generate 2 optimized video generation prompts for this product:
 
@@ -121,7 +125,7 @@ USP: {product_data.usp}
 
 MARKETING HOOKS:
 {hooks_text}
-
+{extra}
 Create compelling short-form video content (6 seconds each) that would perform
 well on Instagram Reels, TikTok, and YouTube Shorts. The videos should feel
 premium and stop-scroll-worthy."""
@@ -150,7 +154,7 @@ async def run_prompt_generation(state: WorkflowState, groq_client) -> WorkflowSt
                 messages=[
                     {"role": "system", "content": IMAGE_PROMPT_SYSTEM},
                     {"role": "user", "content": build_image_prompt_request(
-                        state.product_data, state.creative_strategy
+                        state.product_data, state.creative_strategy, state.extra_instructions
                     )},
                 ],
                 temperature=0.7,
@@ -164,7 +168,7 @@ async def run_prompt_generation(state: WorkflowState, groq_client) -> WorkflowSt
                     messages=[
                         {"role": "system", "content": IMAGE_PROMPT_SYSTEM},
                         {"role": "user", "content": build_image_prompt_request(
-                            state.product_data, state.creative_strategy
+                            state.product_data, state.creative_strategy, state.extra_instructions
                         )},
                     ],
                     temperature=0.7,
@@ -188,7 +192,7 @@ async def run_prompt_generation(state: WorkflowState, groq_client) -> WorkflowSt
                 messages=[
                     {"role": "system", "content": VIDEO_PROMPT_SYSTEM},
                     {"role": "user", "content": build_video_prompt_request(
-                        state.product_data, state.creative_strategy
+                        state.product_data, state.creative_strategy, state.extra_instructions
                     )},
                 ],
                 temperature=0.7,
@@ -202,7 +206,7 @@ async def run_prompt_generation(state: WorkflowState, groq_client) -> WorkflowSt
                     messages=[
                         {"role": "system", "content": VIDEO_PROMPT_SYSTEM},
                         {"role": "user", "content": build_video_prompt_request(
-                            state.product_data, state.creative_strategy
+                            state.product_data, state.creative_strategy, state.extra_instructions
                         )},
                     ],
                     temperature=0.7,

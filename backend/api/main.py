@@ -16,6 +16,7 @@ import json
 import structlog
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,7 @@ from models.schemas import (
 )
 from api.celery_app import (
     celery_app, process_single_url, process_bulk_batch,
-    get_job_progress, set_job_progress,
+    get_job_progress, set_job_progress, _get_redis,
 )
 from api.workflow_runner import use_inline_worker, run_workflow_sync
 
@@ -59,6 +60,15 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
 
 # ─── Health check ─────────────────────────────────────────────────────────────
 
+def _normalize_url(raw_url: str) -> str:
+    url = (raw_url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    return url
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
@@ -75,14 +85,13 @@ async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
     On Windows, runs inline in the API process (Celery prefork pool is unreliable).
     On Linux/Docker, uses Celery unless INLINE_WORKFLOW=1 or USE_CELERY=0.
     """
-    if not request.url:
-        raise HTTPException(status_code=400, detail="URL is required")
+    url = _normalize_url(request.url)
 
     job_id = str(uuid.uuid4())
     logger.info(
         "generate_request",
         job_id=job_id,
-        url=request.url,
+        url=url,
         inline_worker=use_inline_worker(),
     )
 
@@ -90,11 +99,24 @@ async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
 
     if use_inline_worker():
         # No Celery worker required — Redis still used for job status/results
-        background_tasks.add_task(run_workflow_sync, job_id, request.url)
+        background_tasks.add_task(
+            run_workflow_sync,
+            job_id,
+            url,
+            request.brand_name,
+            request.extra_instructions,
+            request.priority.value,
+        )
     else:
         queue = "high" if request.priority == Priority.HIGH else "normal"
         process_single_url.apply_async(
-            kwargs={"job_id": job_id, "url": request.url},
+            kwargs={
+                "job_id": job_id,
+                "url": url,
+                "brand_name": request.brand_name,
+                "extra_instructions": request.extra_instructions,
+                "priority": request.priority.value,
+            },
             task_id=job_id,
             queue=queue,
         )
@@ -209,7 +231,7 @@ async def get_results(job_id: str):
 # ─── Bulk CSV upload ──────────────────────────────────────────────────────────
 
 @app.post("/api/bulk", response_model=BulkUploadResponse)
-async def bulk_upload(file: UploadFile = File(...)):
+async def bulk_upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Upload a CSV file containing multiple product URLs for bulk processing.
     
@@ -227,15 +249,25 @@ async def bulk_upload(file: UploadFile = File(...)):
     errors = []
 
     for i, row in enumerate(reader, 1):
-        url = row.get("url", "").strip()
-        if not url:
+        raw_url = row.get("url", "").strip() or row.get("product_url", "").strip()
+        if not raw_url:
             errors.append(f"Row {i}: missing URL")
             continue
         try:
+            url = _normalize_url(raw_url)
+        except HTTPException as e:
+            errors.append(f"Row {i}: {e.detail}")
+            continue
+        try:
+            raw_priority = (row.get("priority", "normal") or "normal").strip().lower()
+            try:
+                priority = Priority(raw_priority)
+            except Exception:
+                raise ValueError(f"Invalid priority '{raw_priority}'")
             rows.append(CSVRow(
                 url=url,
                 brand_name=row.get("brand_name", "").strip() or None,
-                priority=Priority(row.get("priority", "normal").lower()),
+                priority=priority,
                 extra_instructions=row.get("extra_instructions", "").strip() or None,
             ))
         except Exception as e:
@@ -246,23 +278,56 @@ async def bulk_upload(file: UploadFile = File(...)):
 
     batch_id = str(uuid.uuid4())
     jobs = [
-        {"job_id": str(uuid.uuid4()), "url": row.url, "priority": row.priority}
+        {
+            "job_id": str(uuid.uuid4()),
+            "url": row.url,
+            "priority": row.priority.value,
+            "brand_name": row.brand_name,
+            "extra_instructions": row.extra_instructions,
+        }
         for row in rows
     ]
 
     logger.info("bulk_upload", batch_id=batch_id, total=len(jobs), errors=len(errors))
 
-    # Dispatch batch processing task
-    process_bulk_batch.apply_async(
-        kwargs={"batch_id": batch_id, "jobs": jobs},
-        queue="normal",
-    )
+    if use_inline_worker():
+        r = _get_redis()
+        r.hset(f"batch:{batch_id}", mapping={
+            "total": len(jobs),
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "pending": len(jobs),
+        })
+        r.expire(f"batch:{batch_id}", 86400 * 7)
+
+        for job in jobs:
+            r.hincrby(f"batch:{batch_id}", "pending", -1)
+            r.hincrby(f"batch:{batch_id}", "running", 1)
+            r.rpush(f"batch:{batch_id}:jobs", job["job_id"])
+            set_job_progress(job["job_id"], "queued", 0)
+            background_tasks.add_task(
+                run_workflow_sync,
+                job["job_id"],
+                job["url"],
+                job.get("brand_name"),
+                job.get("extra_instructions"),
+                job.get("priority"),
+                batch_id,
+            )
+    else:
+        # Dispatch batch processing task
+        process_bulk_batch.apply_async(
+            kwargs={"batch_id": batch_id, "jobs": jobs},
+            queue="normal",
+        )
 
     return BulkUploadResponse(
         batch_id=batch_id,
         total_jobs=len(jobs),
         job_ids=[j["job_id"] for j in jobs],
         status="queued",
+        errors=errors,
     )
 
 
