@@ -18,6 +18,8 @@ services:
         value: ./outputs
       - key: INLINE_WORKFLOW
         value: "1"
+      - key: PYTHON_VERSION
+        value: 3.11.10
 
   - type: redis
     name: ai-product-creative-redis
