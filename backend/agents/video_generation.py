@@ -3,9 +3,9 @@ agents/video_generation.py
 Agent 5: Video Generation Workflow
 
 Generates 2 short product marketing videos.
-Primary:   Replicate CogVideoX-5b
+Primary:   Fal.ai fast-animation
 Fallback1: Replicate AnimateDiff
-Fallback2: local diffusers AnimateDiff pipeline
+Fallback2: Replicate CogVideoX-5b
 Fallback3: PIL-based slideshow from generated images (always works)
 """
 
@@ -39,6 +39,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     replicate_key = os.getenv("REPLICATE_API_KEY")
+    fal_key = os.getenv("FAL_KEY")
     generated = []
 
     for vid_prompt in state.generated_prompts.video_prompts:
@@ -48,7 +49,15 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
         video_bytes = None
         model_used = ""
 
-        # ── Try 1: Replicate AnimateDiff-Lightning (reliable, low cost) ───
+        # ── Try 1: Fal.ai Fast Animation ─────────────────────────────────
+        if fal_key and not video_bytes:
+            try:
+                video_bytes = await _generate_fal_animation(state, vid_prompt, fal_key)
+                model_used = "Fast Animation (Fal.ai)"
+            except Exception as e:
+                logger.warning("fal_animation_failed", index=vid_prompt.index, error=str(e))
+
+        # ── Try 2: Replicate AnimateDiff-Lightning (reliable, low cost) ───
         if replicate_key and not video_bytes:
             try:
                 video_bytes = await _generate_animatediff_replicate(vid_prompt, replicate_key)
@@ -56,21 +65,13 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
             except Exception as e:
                 logger.warning("animatediff_replicate_failed", index=vid_prompt.index, error=str(e))
 
-        # ── Try 2: Replicate CogVideoX (optional; needs valid model version) ─
+        # ── Try 3: Replicate CogVideoX (optional; needs valid model version) ─
         if replicate_key and not video_bytes:
             try:
                 video_bytes = await _generate_cogvideox(vid_prompt, replicate_key)
                 model_used = "CogVideoX (Replicate)"
             except Exception as e:
                 logger.warning("cogvideox_failed", index=vid_prompt.index, error=str(e))
-
-        # ── Try 3: Local AnimateDiff (diffusers) ───────────────────────────
-        if not video_bytes:
-            try:
-                video_bytes = await _generate_local_animatediff(vid_prompt)
-                model_used = "AnimateDiff (local diffusers)"
-            except Exception as e:
-                logger.warning("local_animatediff_failed", index=vid_prompt.index, error=str(e))
 
         # ── Fallback: Slideshow from existing images ───────────────────────
         if not video_bytes:
@@ -157,48 +158,44 @@ async def _generate_animatediff_replicate(vid_prompt, api_key: str) -> bytes:
         return resp.content
 
 
-async def _generate_local_animatediff(vid_prompt) -> bytes:
-    """Generate video using local AnimateDiff diffusers pipeline."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _animatediff_sync, vid_prompt)
+async def _generate_fal_animation(state: WorkflowState, vid_prompt, api_key: str) -> bytes:
+    """Generate video via Fal.ai Fast Animation and return bytes."""
+    from utils.http_client import make_async_client
+
+    image_url = _pick_reference_image_url(state)
+    if not image_url:
+        raise RuntimeError("No public image URL available for Fal.ai animation")
+
+    async with make_async_client(timeout=240) as client:
+        response = await client.post(
+            "https://queue.fal.run/fal-ai/fast-animation",
+            headers={
+                "Authorization": f"Key {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "prompt": vid_prompt.prompt,
+                "image_url": image_url,
+                "sync_mode": True,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        video_url = data.get("video", {}).get("url", "")
+        if not video_url:
+            raise RuntimeError("Fal.ai response missing video URL")
+
+        video_resp = await client.get(video_url)
+        video_resp.raise_for_status()
+        return video_resp.content
 
 
-def _animatediff_sync(vid_prompt) -> bytes:
-    import torch
-    from diffusers import AnimateDiffPipeline, DDIMScheduler, MotionAdapter
-    from diffusers.utils import export_to_video
-    import tempfile
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    adapter = MotionAdapter.from_pretrained(
-        "guoyww/animatediff-motion-adapter-v1-5-2",
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    )
-    pipe = AnimateDiffPipeline.from_pretrained(
-        "emilianJR/epiCRealism",
-        motion_adapter=adapter,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    )
-    pipe.scheduler = DDIMScheduler.from_config(
-        pipe.scheduler.config, beta_schedule="linear", clip_sample=False,
-        timestep_spacing="linspace", steps_offset=1,
-    )
-    pipe = pipe.to(device)
-    pipe.enable_vae_slicing()
-
-    output = pipe(
-        prompt=vid_prompt.prompt,
-        negative_prompt="blurry, watermark, bad quality",
-        num_frames=16,
-        guidance_scale=7.5,
-        num_inference_steps=20 if device == "cuda" else 8,
-    )
-
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-        export_to_video(output.frames[0], tmp.name, fps=8)
-        with open(tmp.name, "rb") as f:
-            return f.read()
+def _pick_reference_image_url(state: WorkflowState) -> str:
+    """Select a public image URL for video generation (Fal.ai requires it)."""
+    for gen_img in state.generated_images:
+        if gen_img.url.startswith("http"):
+            return gen_img.url
+    return ""
 
 
 async def _generate_slideshow(state: WorkflowState, vid_prompt, output_dir: Path) -> bytes:

@@ -25,14 +25,10 @@ certifi>=2024.2.2
 truststore>=0.9.1          # Windows OS certificate store for HTTPS
 playwright==1.47.0
 
-# Image/Video generation (local diffusers)
-diffusers>=0.25.0
-transformers==4.45.2
-accelerate==0.34.2
+# Image/Video generation (API-based)
 Pillow==10.4.0
 imageio==2.35.1
 imageio-ffmpeg==0.5.1
-torch>=2.0.0           # CPU install; use torch+cu121 for GPU
 
 # Async task queue
 celery==5.4.0
