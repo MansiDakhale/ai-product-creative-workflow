@@ -20,6 +20,8 @@ services:
         value: "1"
       - key: PYTHON_VERSION
         value: 3.11.10
+      - key: GROQ_API_KEY
+        sync: false
 
   - type: redis
     name: ai-product-creative-redis
