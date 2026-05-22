@@ -190,7 +190,7 @@ def build_workflow_graph() -> StateGraph:
 
     # ── Register nodes ──────────────────────────────────────────────────────
     workflow.add_node("product_research", node_product_research)
-    workflow.add_node("creative_strategy", node_creative_strategy)
+    workflow.add_node("creative_strategy_node", node_creative_strategy)
     workflow.add_node("prompt_generation", node_prompt_generation)
     workflow.add_node("media_generation", node_media_generation)   # parallel img+vid
     workflow.add_node("review_critic", node_review_critic)
@@ -202,11 +202,11 @@ def build_workflow_graph() -> StateGraph:
     workflow.add_conditional_edges(
         "product_research",
         should_continue_after_research,
-        {"creative_strategy": "creative_strategy", END: END},
+        {"creative_strategy": "creative_strategy_node", END: END},
     )
 
     workflow.add_conditional_edges(
-        "creative_strategy",
+        "creative_strategy_node",
         should_continue_after_strategy,
         {"prompt_generation": "prompt_generation", END: END},
     )

@@ -134,6 +134,10 @@ GROQ_API_KEY=           # https://console.groq.com (free)
 TOGETHER_API_KEY=       # https://api.together.xyz (free $25 credits)
 REPLICATE_API_KEY=      # https://replicate.com (free credits)
 HF_TOKEN=               # https://huggingface.co (free)
+
+# Optional / provider-specific keys
+STABILITY_API_KEY=      # https://platform.stability.ai (optional)
+STABILITY_API_URL=      # model-specific endpoint if required
 ```
 
 Additional runtime vars (local defaults shown):
@@ -155,7 +159,11 @@ A root-level `sample_products.csv` is included for bulk upload demos.
 ### 3. Start Services
 
 ```bash
-# Terminal 1: Redis
+# Terminal 1: Redis (recommended: Docker Compose)
+# Option A — run only Redis via Docker Compose (recommended):
+docker compose up -d redis
+
+# Option B — run Redis locally (if installed on host):
 redis-server
 
 # Terminal 2: Celery Worker (Linux/macOS/Docker only)
@@ -185,6 +193,18 @@ docker-compose up --build
 ```
 
 Then open **http://localhost:5173**
+
+## Run only Redis
+
+To start just the Redis service (no other containers):
+
+```bash
+docker compose up -d redis
+docker compose ps
+docker compose logs -f redis
+```
+
+If running the backend locally (not in Docker), keep `REDIS_URL=redis://localhost:6379/0` in `backend/.env` and ensure Redis is reachable on the host.
 
 ---
 

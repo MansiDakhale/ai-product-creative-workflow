@@ -54,11 +54,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
                 video_bytes = await _generate_animatediff_replicate(vid_prompt, replicate_key)
                 model_used = "AnimateDiff-Lightning (Replicate)"
             except Exception as e:
-                msg = str(e)
-                if "429" in msg or "rate limit" in msg.lower():
-                    logger.error("agent5_rate_limited", job_id=state.job_id, index=vid_prompt.index, error=msg)
-                else:
-                    logger.warning("animatediff_replicate_failed", index=vid_prompt.index, error=msg)
+                logger.warning("animatediff_replicate_failed", index=vid_prompt.index, error=str(e))
 
         # ── Try 2: Replicate CogVideoX (optional; needs valid model version) ─
         if replicate_key and not video_bytes:
@@ -66,11 +62,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
                 video_bytes = await _generate_cogvideox(vid_prompt, replicate_key)
                 model_used = "CogVideoX (Replicate)"
             except Exception as e:
-                msg = str(e)
-                if "429" in msg or "rate limit" in msg.lower():
-                    logger.error("agent5_rate_limited", job_id=state.job_id, index=vid_prompt.index, error=msg)
-                else:
-                    logger.warning("cogvideox_failed", index=vid_prompt.index, error=msg)
+                logger.warning("cogvideox_failed", index=vid_prompt.index, error=str(e))
 
         # ── Try 3: Local AnimateDiff (diffusers) ───────────────────────────
         if not video_bytes:

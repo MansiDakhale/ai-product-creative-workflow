@@ -133,7 +133,7 @@ async def run_product_research(state: WorkflowState, groq_client) -> WorkflowSta
     try:
         user_prompt = build_research_prompt(scraped)
         response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": PRODUCT_RESEARCH_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

@@ -23,14 +23,48 @@ from models.schemas import WorkflowState, GeneratedImage, JobStatus
 
 logger = structlog.get_logger()
 
+
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+PIPE = None
 
-# Together AI FLUX endpoint
-TOGETHER_API_URL = "https://api.together.xyz/v1/images/generations"
+
 # HuggingFace Inference API
 HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+# Stability AI generation endpoint (used when `STABILITY_API_KEY` is set)
+# This is a generic v1 generation endpoint; replace with a more specific
+# engine path if you need a particular model (e.g. stable-diffusion-xl).
+STABILITY_API_URL = os.getenv("STABILITY_API_URL", "https://api.stability.ai/v2beta/stable-image/generate/core")
 
+
+def get_pipeline():
+    global PIPE
+
+    if PIPE is None:
+        from diffusers import StableDiffusionXLPipeline
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        dtype = (
+            torch.float16
+            if device == "cuda"
+            else torch.float32
+        )
+
+        logger.info("loading_sdxl_pipeline", device=device)
+
+        PIPE = StableDiffusionXLPipeline.from_pretrained(
+            "stabilityai/sdxl-turbo",
+            torch_dtype=dtype,
+            variant="fp16" if device == "cuda" else None,
+        )
+
+        PIPE = PIPE.to(device)
+
+        logger.info("sdxl_pipeline_loaded")
+
+    return PIPE
 
 async def run_image_generation(state: WorkflowState) -> WorkflowState:
     """
@@ -47,7 +81,7 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
     job_output_dir = OUTPUT_DIR / state.job_id / "images"
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
-    together_key = os.getenv("TOGETHER_API_KEY")
+    stability_key = os.getenv("STABILITY_API_KEY")
     hf_token = os.getenv("HF_TOKEN")
 
     generated = []
@@ -57,18 +91,13 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
 
         image_bytes = None
 
-        # ── Try 1: Together AI FLUX.1-schnell ──────────────────────────────
-        if together_key and not image_bytes:
+        # ── Try 1: Stability AI ──────────────────────────────
+        if stability_key and not image_bytes:
             try:
-                image_bytes = await _generate_together(img_prompt, together_key)
-                model_used = "FLUX.1-schnell (Together AI)"
+                image_bytes = await _generate_stability(img_prompt, stability_key)
+                model_used = "Stable Image Ultra (Stability AI)"
             except Exception as e:
-                # Detect rate limit (HTTP 429) when possible
-                msg = str(e)
-                if hasattr(e, "response") and getattr(e.response, "status_code", None) == 429:
-                    logger.error("agent4_rate_limited", job_id=state.job_id, index=img_prompt.index, error=msg)
-                else:
-                    logger.warning("together_ai_failed", index=img_prompt.index, error=msg)
+                logger.warning("stability_ai_failed", index=img_prompt.index, error=str(e))
 
         # ── Try 2: HuggingFace Inference API (SDXL) ───────────────────────
         if hf_token and not image_bytes:
@@ -76,12 +105,7 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
                 image_bytes = await _generate_huggingface(img_prompt, hf_token)
                 model_used = "SDXL (HuggingFace Inference API)"
             except Exception as e:
-                msg = str(e)
-                # httpx raises HTTPStatusError with response attribute
-                if hasattr(e, "response") and getattr(e.response, "status_code", None) == 429:
-                    logger.error("agent4_rate_limited", job_id=state.job_id, index=img_prompt.index, error=msg)
-                else:
-                    logger.warning("hf_failed", index=img_prompt.index, error=msg)
+                logger.warning("hf_failed", index=img_prompt.index, error=str(e))
 
         # ── Try 3: Local diffusers (CPU) ───────────────────────────────────
         if not image_bytes:
@@ -122,32 +146,35 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
     return state
 
 
-async def _generate_together(img_prompt, api_key: str) -> bytes:
-    """Generate image using Together AI FLUX.1-schnell."""
-    width, height = _parse_aspect_ratio(img_prompt.aspect_ratio)
-    
+async def _generate_stability(img_prompt, api_key: str) -> bytes:
+    """Generate image using Stability AI API."""
+
     from utils.http_client import make_async_client
-    async with make_async_client(timeout=120) as client:
-        resp = await client.post(
-            TOGETHER_API_URL,
+
+    async with make_async_client(timeout=180) as client:
+
+        response = await client.post(
+            STABILITY_API_URL,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
+                "Accept": "application/json",
             },
-            json={
-                "model": "black-forest-labs/FLUX.1-schnell-Free",
+            files={
+                "none": ("", b"")
+            },
+            data={
                 "prompt": img_prompt.prompt,
-                "width": width,
-                "height": height,
-                "steps": 4,
-                "n": 1,
-                "response_format": "b64_json",
+                "output_format": "png",
             },
         )
-        resp.raise_for_status()
-        data = resp.json()
-        b64_data = data["data"][0]["b64_json"]
-        return base64.b64decode(b64_data)
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        image_bytes = base64.b64decode(data["image"])
+
+        return image_bytes
 
 
 async def _generate_huggingface(img_prompt, hf_token: str) -> bytes:
@@ -184,12 +211,7 @@ def _diffusers_sync(img_prompt) -> bytes:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if device == "cuda" else torch.float32
 
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        "stabilityai/sdxl-turbo",
-        torch_dtype=dtype,
-        variant="fp16" if device == "cuda" else None,
-    )
-    pipe = pipe.to(device)
+    pipe = get_pipeline()
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
     image = pipe(
