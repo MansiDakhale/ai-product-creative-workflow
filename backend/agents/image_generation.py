@@ -3,9 +3,8 @@ agents/image_generation.py
 Agent 4: Image Generation Workflow
 
 Generates 5 product marketing images using external AI image generation APIs.
-Primary: Fal.ai Fast SDXL
+Primary: Hugging Face Inference API (SDXL)
 Fallback: Stability AI (if configured)
-Fallback: Hugging Face Inference API (SDXL)
 """
 
 from __future__ import annotations
@@ -28,9 +27,6 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# Fal.ai Fast SDXL
-FAL_SDXL_URL = "https://queue.fal.run/fal-ai/fast-sdxl"
-
 # HuggingFace Inference API
 HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
 # Stability AI generation endpoint (used when `STABILITY_API_KEY` is set)
@@ -42,7 +38,7 @@ STABILITY_API_URL = os.getenv("STABILITY_API_URL", "https://api.stability.ai/v2b
 async def run_image_generation(state: WorkflowState) -> WorkflowState:
     """
     Agent 4: Generate 5 product marketing images.
-    Tries Fal.ai first, then Stability AI, then HuggingFace Inference API.
+    Tries HuggingFace Inference API first, then Stability AI.
     """
     if not state.generated_prompts:
         state.error = "Cannot generate images: no prompts available"
@@ -54,7 +50,6 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
     job_output_dir = OUTPUT_DIR / state.job_id / "images"
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
-    fal_key = os.getenv("FAL_KEY")
     stability_key = os.getenv("STABILITY_API_KEY")
     hf_token = os.getenv("HF_TOKEN")
 
@@ -64,15 +59,14 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
         start = time.time()
 
         image_bytes = None
-        remote_url = ""
 
-        # ── Try 1: Fal.ai Fast SDXL ─────────────────────────
-        if fal_key and not image_bytes:
+        # ── Try 1: HuggingFace Inference API (SDXL) ───────────────────────
+        if hf_token and not image_bytes:
             try:
-                image_bytes, remote_url = await _generate_fal_sdxl(img_prompt, fal_key)
-                model_used = "Fast SDXL (Fal.ai)"
+                image_bytes = await _generate_huggingface(img_prompt, hf_token)
+                model_used = "SDXL (HuggingFace Inference API)"
             except Exception as e:
-                logger.warning("fal_sdxl_failed", index=img_prompt.index, error=str(e))
+                logger.warning("hf_failed", index=img_prompt.index, error=str(e))
 
         # ── Try 2: Stability AI ──────────────────────────────
         if stability_key and not image_bytes:
@@ -81,14 +75,6 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
                 model_used = "Stable Image Ultra (Stability AI)"
             except Exception as e:
                 logger.warning("stability_ai_failed", index=img_prompt.index, error=str(e))
-
-        # ── Try 3: HuggingFace Inference API (SDXL) ───────────────────────
-        if hf_token and not image_bytes:
-            try:
-                image_bytes = await _generate_huggingface(img_prompt, hf_token)
-                model_used = "SDXL (HuggingFace Inference API)"
-            except Exception as e:
-                logger.warning("hf_failed", index=img_prompt.index, error=str(e))
 
         # ── Final fallback: Placeholder image ─────────────────────────────
         if not image_bytes:
@@ -107,12 +93,10 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
         img = Image.open(io.BytesIO(image_bytes))
         img.save(file_path, format="PNG")
 
-        asset_url = remote_url or f"/outputs/{state.job_id}/images/{file_name}"
-
         generated.append(GeneratedImage(
             index=img_prompt.index,
             file_path=str(file_path),
-            url=asset_url,
+            url=f"/outputs/{state.job_id}/images/{file_name}",
             prompt_used=img_prompt.prompt,
             model=model_used,
             width=img.width,
@@ -159,34 +143,6 @@ async def _generate_stability(img_prompt, api_key: str) -> bytes:
         image_bytes = base64.b64decode(data["image"])
 
         return image_bytes
-
-
-async def _generate_fal_sdxl(img_prompt, api_key: str) -> tuple[bytes, str]:
-    """Generate image via Fal.ai Fast SDXL and return (bytes, remote_url)."""
-    from utils.http_client import make_async_client
-
-    async with make_async_client(timeout=180) as client:
-        response = await client.post(
-            FAL_SDXL_URL,
-            headers={
-                "Authorization": f"Key {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "prompt": img_prompt.prompt,
-                "image_size": "1024x1024",
-                "sync_mode": True,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        image_url = data.get("images", [{}])[0].get("url", "")
-        if not image_url:
-            raise RuntimeError("Fal.ai response missing image URL")
-
-        img_resp = await client.get(image_url)
-        img_resp.raise_for_status()
-        return img_resp.content, image_url
 
 
 async def _generate_huggingface(img_prompt, hf_token: str) -> bytes:

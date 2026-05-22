@@ -3,10 +3,7 @@ agents/video_generation.py
 Agent 5: Video Generation Workflow
 
 Generates 2 short product marketing videos.
-Primary:   Fal.ai fast-animation
-Fallback1: Replicate AnimateDiff
-Fallback2: Replicate CogVideoX-5b
-Fallback3: PIL-based slideshow from generated images (always works)
+Primary:   PIL-based slideshow from generated images (always works)
 """
 
 from __future__ import annotations
@@ -39,7 +36,6 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     replicate_key = os.getenv("REPLICATE_API_KEY")
-    fal_key = os.getenv("FAL_KEY")
     generated = []
 
     for vid_prompt in state.generated_prompts.video_prompts:
@@ -49,15 +45,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
         video_bytes = None
         model_used = ""
 
-        # ── Try 1: Fal.ai Fast Animation ─────────────────────────────────
-        if fal_key and not video_bytes:
-            try:
-                video_bytes = await _generate_fal_animation(state, vid_prompt, fal_key)
-                model_used = "Fast Animation (Fal.ai)"
-            except Exception as e:
-                logger.warning("fal_animation_failed", index=vid_prompt.index, error=str(e))
-
-        # ── Try 2: Replicate AnimateDiff-Lightning (reliable, low cost) ───
+        # ── Optional: Replicate AnimateDiff-Lightning ────────────────────
         if replicate_key and not video_bytes:
             try:
                 video_bytes = await _generate_animatediff_replicate(vid_prompt, replicate_key)
@@ -65,7 +53,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
             except Exception as e:
                 logger.warning("animatediff_replicate_failed", index=vid_prompt.index, error=str(e))
 
-        # ── Try 3: Replicate CogVideoX (optional; needs valid model version) ─
+        # ── Optional: Replicate CogVideoX (optional; needs valid model version) ─
         if replicate_key and not video_bytes:
             try:
                 video_bytes = await _generate_cogvideox(vid_prompt, replicate_key)
@@ -73,7 +61,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
             except Exception as e:
                 logger.warning("cogvideox_failed", index=vid_prompt.index, error=str(e))
 
-        # ── Fallback: Slideshow from existing images ───────────────────────
+        # ── Primary: Slideshow from existing images ───────────────────────
         if not video_bytes:
             logger.info("using_slideshow_fallback", index=vid_prompt.index)
             try:
@@ -158,44 +146,6 @@ async def _generate_animatediff_replicate(vid_prompt, api_key: str) -> bytes:
         return resp.content
 
 
-async def _generate_fal_animation(state: WorkflowState, vid_prompt, api_key: str) -> bytes:
-    """Generate video via Fal.ai Fast Animation and return bytes."""
-    from utils.http_client import make_async_client
-
-    image_url = _pick_reference_image_url(state)
-    if not image_url:
-        raise RuntimeError("No public image URL available for Fal.ai animation")
-
-    async with make_async_client(timeout=240) as client:
-        response = await client.post(
-            "https://queue.fal.run/fal-ai/fast-animation",
-            headers={
-                "Authorization": f"Key {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "prompt": vid_prompt.prompt,
-                "image_url": image_url,
-                "sync_mode": True,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        video_url = data.get("video", {}).get("url", "")
-        if not video_url:
-            raise RuntimeError("Fal.ai response missing video URL")
-
-        video_resp = await client.get(video_url)
-        video_resp.raise_for_status()
-        return video_resp.content
-
-
-def _pick_reference_image_url(state: WorkflowState) -> str:
-    """Select a public image URL for video generation (Fal.ai requires it)."""
-    for gen_img in state.generated_images:
-        if gen_img.url.startswith("http"):
-            return gen_img.url
-    return ""
 
 
 async def _generate_slideshow(state: WorkflowState, vid_prompt, output_dir: Path) -> bytes:
