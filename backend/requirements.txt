@@ -26,7 +26,7 @@ truststore>=0.9.1          # Windows OS certificate store for HTTPS
 playwright==1.47.0
 
 # Image/Video generation (local diffusers)
-diffusers==0.30.3
+diffusers>=0.25.0
 transformers==4.45.2
 accelerate==0.34.2
 Pillow==10.4.0
