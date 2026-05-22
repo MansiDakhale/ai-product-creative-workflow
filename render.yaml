@@ -5,7 +5,9 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: bash -lc "celery -A api.celery_app.celery_app worker -l info -Q high,normal,low --concurrency 1 & uvicorn api.main:app --host 0.0.0.0 --port $PORT"
+    # Use uvicorn only for initial deploy to avoid spawning a background Celery worker.
+    # The app will run workflows inline on Windows / when INLINE_WORKFLOW=1 is set.
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: REDIS_URL
         fromService:
@@ -14,6 +16,8 @@ services:
           property: connectionString
       - key: OUTPUT_DIR
         value: ./outputs
+      - key: INLINE_WORKFLOW
+        value: "1"
 
   - type: redis
     name: ai-product-creative-redis
