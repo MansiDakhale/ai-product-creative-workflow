@@ -13,12 +13,11 @@ services:
           name: ai-product-creative-redis
           property: connectionString
       - key: OUTPUT_DIR
-        value: /var/data/outputs
-    disk:
-      name: outputs
-      mountPath: /var/data
-      sizeGB: 1
+        value: ./outputs
 
   - type: redis
     name: ai-product-creative-redis
     plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: public access for demo
