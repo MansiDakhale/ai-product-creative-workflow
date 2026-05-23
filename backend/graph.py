@@ -6,13 +6,14 @@ Defines the multi-agent state machine that orchestrates all 6 agents.
 Uses conditional edges to handle retries from the Review/Critic agent.
 
 Graph structure:
-  START
-    → product_research
-    → creative_strategy
-    → prompt_generation
-    → [image_generation, video_generation]  (parallel fan-out)
-    → review_critic
-    → END  (or back to image/video gen if review fails and retries remain)
+    START
+        → product_research
+        → creative_strategy
+        → prompt_generation
+        → image_generation
+        → video_generation
+        → review_critic
+        → END  (or back to image/video gen if review fails and retries remain)
 """
 
 from __future__ import annotations
@@ -81,35 +82,20 @@ async def node_prompt_generation(state: WorkflowState) -> WorkflowState:
 
 
 async def node_image_generation(state: WorkflowState) -> WorkflowState:
-    return await run_image_generation(state)
+    report_progress(state.job_id, "image_generation", 55)
+    state = await run_image_generation(state)
+    if state.generated_images:
+        save_workflow_artifacts(state)
+    report_progress(state.job_id, "image_generation", 70)
+    return state
 
 
 async def node_video_generation(state: WorkflowState) -> WorkflowState:
-    return await run_video_generation(state)
-
-
-async def node_media_generation(state: WorkflowState) -> WorkflowState:
-    """
-    Fan-out: run image and video generation in parallel.
-    LangGraph doesn't natively fan-out on a single node, so we use
-    asyncio.gather to parallelise them here.
-    """
-    report_progress(state.job_id, "media_generation", 55)
-    img_result, vid_result = await asyncio.gather(
-        run_image_generation(state),
-        run_video_generation(state),
-        return_exceptions=True,
-    )
-    if isinstance(img_result, Exception):
-        logger.error("image_generation_failed", error=str(img_result))
-        raise img_result
-    if isinstance(vid_result, Exception):
-        logger.error("video_generation_failed", error=str(vid_result))
-        raise vid_result
-    # Merge results back into a single state object
-    state.generated_images = img_result.generated_images
-    state.generated_videos = vid_result.generated_videos
-    report_progress(state.job_id, "media_generation", 80)
+    report_progress(state.job_id, "video_generation", 72)
+    state = await run_video_generation(state)
+    if state.generated_videos:
+        save_workflow_artifacts(state)
+    report_progress(state.job_id, "video_generation", 80)
     return state
 
 
@@ -144,7 +130,7 @@ async def node_finalize(state: WorkflowState) -> WorkflowState:
 
 # ─── Conditional edge functions ───────────────────────────────────────────────
 
-def should_retry(state: WorkflowState) -> Literal["media_generation", "finalize"]:
+def should_retry(state: WorkflowState) -> Literal["image_generation", "finalize"]:
     """
     After review: if retry is recommended and budget remains, loop back.
     Otherwise, proceed to finalization.
@@ -161,7 +147,7 @@ def should_retry(state: WorkflowState) -> Literal["media_generation", "finalize"
         )
         state.retry_count += 1
         state.status = JobStatus.RETRYING
-        return "media_generation"
+        return "image_generation"
     return "finalize"
 
 
@@ -192,7 +178,8 @@ def build_workflow_graph() -> StateGraph:
     workflow.add_node("product_research", node_product_research)
     workflow.add_node("creative_strategy_node", node_creative_strategy)
     workflow.add_node("prompt_generation", node_prompt_generation)
-    workflow.add_node("media_generation", node_media_generation)   # parallel img+vid
+    workflow.add_node("image_generation", node_image_generation)
+    workflow.add_node("video_generation", node_video_generation)
     workflow.add_node("review_critic", node_review_critic)
     workflow.add_node("finalize", node_finalize)
 
@@ -211,14 +198,15 @@ def build_workflow_graph() -> StateGraph:
         {"prompt_generation": "prompt_generation", END: END},
     )
 
-    workflow.add_edge("prompt_generation", "media_generation")
-    workflow.add_edge("media_generation", "review_critic")
+    workflow.add_edge("prompt_generation", "image_generation")
+    workflow.add_edge("image_generation", "video_generation")
+    workflow.add_edge("video_generation", "review_critic")
 
     # Retry loop: review_critic → media_generation (if retry) OR finalize
     workflow.add_conditional_edges(
         "review_critic",
         should_retry,
-        {"media_generation": "media_generation", "finalize": "finalize"},
+        {"image_generation": "image_generation", "finalize": "finalize"},
     )
 
     workflow.add_edge("finalize", END)

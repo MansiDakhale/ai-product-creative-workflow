@@ -33,6 +33,15 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
 
     logger.info("agent5_video_gen_start", job_id=state.job_id)
 
+    def _get_field(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    completed_images = _get_field(state, "generated_images", []) or []
+    if not completed_images:
+        logger.warning("video_node_triggered_without_images", job_id=state.job_id)
+
     job_output_dir = OUTPUT_DIR / state.job_id / "videos"
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +75,7 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
         if not video_bytes:
             logger.info("using_slideshow_fallback", index=vid_prompt.index)
             try:
-                video_bytes = await _generate_slideshow(state, vid_prompt, job_output_dir)
+                video_bytes = await _generate_slideshow(completed_images, vid_prompt, job_output_dir)
                 model_used = "Image slideshow (imageio)"
             except ImportError as e:
                 logger.warning("slideshow_fallback_failed", error=str(e))
@@ -159,7 +168,7 @@ async def _generate_animatediff_replicate(vid_prompt, api_key: str) -> bytes:
 
 
 
-async def _generate_slideshow(state: WorkflowState, vid_prompt, output_dir: Path) -> bytes:
+async def _generate_slideshow(completed_images, vid_prompt, output_dir: Path) -> bytes:
     """
     Fallback: create a video slideshow from generated images using imageio.
     This always works and produces a decent result.
@@ -170,7 +179,7 @@ async def _generate_slideshow(state: WorkflowState, vid_prompt, output_dir: Path
     import io as _io
 
     frames = []
-    img_paths = [img.file_path for img in state.generated_images[:4]]
+    img_paths = [img.file_path if hasattr(img, "file_path") else img for img in completed_images[:4]]
 
     fps = 8
     duration_per_image = 2  # seconds
