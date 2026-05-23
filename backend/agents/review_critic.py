@@ -73,6 +73,17 @@ def _has_placeholder_assets(state: WorkflowState) -> bool:
     return any("placeholder" in (vid.model or "").lower() for vid in state.generated_videos)
 
 
+def _has_incomplete_assets(state: WorkflowState) -> bool:
+    """Detect missing or broken asset references to prevent infinite retries."""
+    for img in state.generated_images:
+        if not img.url and not os.path.exists(img.file_path):
+            return True
+    for vid in state.generated_videos:
+        if not vid.url and not os.path.exists(vid.file_path):
+            return True
+    return False
+
+
 def build_critic_prompt(product_data, creative_strategy, asset_type: str,
                          asset_index: int, prompt_used: str) -> str:
     return f"""Evaluate this {asset_type} for product marketing:
@@ -155,7 +166,7 @@ async def run_review_critic(state: WorkflowState, groq_client) -> WorkflowState:
     all_passed = all(r.passed for r in all_reviews)
     avg_score = sum(r.overall_score for r in all_reviews) / max(len(all_reviews), 1)
     needs_retry = not all_passed and state.retry_count < state.max_retries
-    if _has_placeholder_assets(state):
+    if _has_placeholder_assets(state) or _has_incomplete_assets(state):
         needs_retry = False
 
     # Update prompts with revised versions if needed
@@ -170,6 +181,8 @@ async def run_review_critic(state: WorkflowState, groq_client) -> WorkflowState:
     )
     if _has_placeholder_assets(state):
         summary += " Placeholder assets detected; skipping retries."
+    if _has_incomplete_assets(state):
+        summary += " Incomplete assets detected; skipping retries."
     if issues_found:
         summary += f" Key issues: {'; '.join(issues_found[:3])}"
 
