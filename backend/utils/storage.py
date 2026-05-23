@@ -64,26 +64,47 @@ def persist_workflow_state(state) -> None:
     table = os.getenv("SUPABASE_TABLE", "campaign_workflows")
     supabase = create_client(supabase_url, supabase_key)
 
-    image_urls = [img.url for img in (state.generated_images or [])]
-    video_urls = [vid.url for vid in (state.generated_videos or [])]
+    def _get_field(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    generated_images = _get_field(state, "generated_images", []) or []
+    generated_videos = _get_field(state, "generated_videos", []) or []
+
+    image_urls = [img.url if hasattr(img, "url") else img for img in generated_images]
+    video_urls = [vid.url if hasattr(vid, "url") else vid for vid in generated_videos]
 
     review_score = None
-    if state.review_report and state.review_report.image_reviews:
-        scores = [r.overall_score for r in state.review_report.image_reviews + state.review_report.video_reviews]
+    review_report = _get_field(state, "review_report")
+    if review_report and getattr(review_report, "image_reviews", None):
+        scores = [r.overall_score for r in review_report.image_reviews + review_report.video_reviews]
         if scores:
             review_score = round(sum(scores) / len(scores), 3)
 
     payload = {
-        "id": state.job_id,
-        "product_url": state.url,
-        "brand": state.product_data.brand if state.product_data else (state.brand_name or ""),
-        "research_data": state.product_data.model_dump(mode="json") if state.product_data else None,
-        "marketing_strategy": state.creative_strategy.model_dump(mode="json") if state.creative_strategy else None,
+        "id": _get_field(state, "job_id"),
+        "product_url": _get_field(state, "url"),
+        "brand": (
+            _get_field(_get_field(state, "product_data"), "brand")
+            if _get_field(state, "product_data")
+            else (_get_field(state, "brand_name") or "")
+        ),
+        "research_data": (
+            _get_field(state, "product_data").model_dump(mode="json")
+            if _get_field(state, "product_data")
+            else None
+        ),
+        "marketing_strategy": (
+            _get_field(state, "creative_strategy").model_dump(mode="json")
+            if _get_field(state, "creative_strategy")
+            else None
+        ),
         "image_urls": image_urls,
         "video_urls": video_urls,
-        "review_summary": state.review_report.summary if state.review_report else None,
+        "review_summary": review_report.summary if review_report else None,
         "review_score": review_score,
-        "raw_state": state.model_dump(mode="json") if hasattr(state, "model_dump") else None,
+        "raw_state": state.model_dump(mode="json") if hasattr(state, "model_dump") else (state if isinstance(state, dict) else None),
     }
 
     try:
