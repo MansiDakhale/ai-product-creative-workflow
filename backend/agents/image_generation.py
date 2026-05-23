@@ -80,6 +80,15 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
                         attempt=attempt + 1,
                         error=str(e),
                     )
+                    if _is_payment_required_error(e):
+                        logger.warning(
+                            "pollinations_rate_limited",
+                            index=img_prompt.index,
+                            job_id=state.job_id,
+                        )
+                        image_bytes = _generate_mockup_image(state, img_prompt, img_prompt.index)
+                        model_used = "mockup"
+                        break
 
         # ── Try 2: HuggingFace Inference API (SDXL) ───────────────────────
         if hf_token and not image_bytes:
@@ -100,10 +109,10 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
         # ── Final fallback: Placeholder image ─────────────────────────────
         if not image_bytes:
             try:
-                model_used = "placeholder"
-                image_bytes = _generate_placeholder_image(img_prompt, img_prompt.index)
+                model_used = "mockup"
+                image_bytes = _generate_mockup_image(state, img_prompt, img_prompt.index)
             except Exception as e:
-                logger.warning("placeholder_failed", index=img_prompt.index, error=str(e))
+                logger.warning("mockup_failed", index=img_prompt.index, error=str(e))
                 raise
 
         # Save image
@@ -208,33 +217,82 @@ async def _generate_pollinations(img_prompt) -> bytes:
         return resp.content
 
 
-def _generate_placeholder_image(img_prompt, index: int) -> bytes:
-    """Last resort: generate a labeled placeholder image."""
+def _is_payment_required_error(error: Exception) -> bool:
+    """Detect Pollinations-style throttling so we can skip noisy retries."""
+    if isinstance(error, httpx.HTTPStatusError) and error.response is not None:
+        return error.response.status_code == 402
+    message = str(error).lower()
+    return "402" in message or "payment required" in message
+
+
+def _generate_mockup_image(state: WorkflowState, img_prompt, index: int) -> bytes:
+    """Generate a polished static mockup that looks deliberate rather than broken."""
     from PIL import ImageDraw, ImageFont
-    img = Image.new("RGB", (1024, 1024), color=(30, 30, 50))
+
+    width, height = _parse_aspect_ratio(getattr(img_prompt, "aspect_ratio", "1:1"))
+    img = Image.new("RGB", (width, height), color=(13, 18, 33))
     draw = ImageDraw.Draw(img)
-    
-    # Draw gradient-like header
-    for y in range(200):
-        r = int(30 + (y / 200) * 50)
-        draw.line([(0, y), (1024, y)], fill=(r, 30, 80))
 
-    draw.text((512, 100), f"IMAGE {index}", fill=(255, 255, 255), anchor="mm")
-    draw.text((512, 200), "AI Generation Placeholder", fill=(200, 200, 200), anchor="mm")
+    for y in range(height):
+        mix = y / max(height - 1, 1)
+        r = int(14 + mix * 32)
+        g = int(18 + mix * 44)
+        b = int(33 + mix * 36)
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
 
-    # Wrap prompt text
-    words = img_prompt.prompt.split()
-    lines, line = [], []
-    for w in words:
-        line.append(w)
-        if len(" ".join(line)) > 60:
-            lines.append(" ".join(line[:-1]))
-            line = [w]
-    if line:
-        lines.append(" ".join(line))
+    accent = (246, 176, 84)
+    highlight = (245, 248, 255)
+    muted = (180, 191, 210)
 
-    for i, ln in enumerate(lines[:6]):
-        draw.text((512, 350 + i * 40), ln, fill=(180, 180, 180), anchor="mm")
+    panel_margin = int(width * 0.08)
+    panel = [panel_margin, panel_margin, width - panel_margin, height - panel_margin]
+    draw.rounded_rectangle(panel, radius=40, outline=(92, 107, 136), width=3, fill=(20, 27, 45))
+
+    draw.ellipse((panel_margin + 30, panel_margin + 28, panel_margin + 150, panel_margin + 148), fill=(42, 54, 82))
+    draw.ellipse((width - panel_margin - 170, panel_margin + 46, width - panel_margin - 58, panel_margin + 158), fill=(32, 49, 72))
+
+    # Product spotlight pedestal
+    cx = width // 2
+    cy = int(height * 0.58)
+    draw.ellipse((cx - 180, cy - 34, cx + 180, cy + 86), fill=(36, 46, 72))
+    draw.ellipse((cx - 150, cy - 70, cx + 150, cy + 58), fill=(50, 64, 96))
+    draw.ellipse((cx - 120, cy - 100, cx + 120, cy + 32), fill=(72, 89, 132))
+
+    # Abstract product silhouette
+    draw.rounded_rectangle((cx - 110, cy - 250, cx + 110, cy - 40), radius=36, fill=(238, 241, 247))
+    draw.rounded_rectangle((cx - 78, cy - 212, cx + 78, cy - 80), radius=28, fill=(255, 255, 255))
+    draw.rectangle((cx - 40, cy - 285, cx + 40, cy - 235), fill=(210, 217, 228))
+
+    # Decorative rings and badges
+    for radius, outline_color in ((220, (79, 97, 135)), (260, (48, 70, 111))):
+        draw.arc((cx - radius, cy - radius - 150, cx + radius, cy + radius - 150), 200, 340, fill=outline_color, width=8)
+
+    badge_box = (panel_margin + 34, height - panel_margin - 180, panel_margin + 260, height - panel_margin - 88)
+    draw.rounded_rectangle(badge_box, radius=24, fill=(33, 47, 74), outline=(89, 107, 142), width=2)
+
+    # Text blocks
+    title = (state.brand_name or getattr(state.product_data, "brand", "Premium")).strip() or "Premium"
+    headline = getattr(state.product_data, "title", "Product Spotlight")
+    tagline = getattr(state.creative_strategy, "primary_hook", "High-impact product story") if state.creative_strategy else "High-impact product story"
+    subtitle = getattr(state.product_data, "usp", "Crafted for a clean, editorial product demo") or "Crafted for a clean, editorial product demo"
+
+    def _fit_text(text: str, limit: int) -> str:
+        text = " ".join(text.split())
+        return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+    draw.text((panel_margin + 40, panel_margin + 42), _fit_text(title.upper(), 22), fill=accent, anchor="la")
+    draw.text((panel_margin + 40, panel_margin + 96), _fit_text(headline, 38), fill=highlight, anchor="la")
+    draw.text((panel_margin + 40, panel_margin + 152), _fit_text(tagline, 52), fill=muted, anchor="la")
+    draw.text((panel_margin + 40, panel_margin + 202), _fit_text(subtitle, 62), fill=(205, 213, 228), anchor="la")
+    draw.text((panel_margin + 56, height - panel_margin - 150), f"IMAGE {index:02d}", fill=highlight, anchor="la")
+    draw.text((panel_margin + 56, height - panel_margin - 118), "Demo-ready fallback mockup", fill=muted, anchor="la")
+
+    prompt_preview = _fit_text(img_prompt.prompt, 110)
+    draw.text((panel_margin + 34, panel_margin + 242), prompt_preview, fill=(214, 221, 235), anchor="la")
+
+    # Footer bar
+    footer_y = height - panel_margin - 52
+    draw.rounded_rectangle((panel_margin + 36, footer_y, width - panel_margin - 36, footer_y + 18), radius=9, fill=accent)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

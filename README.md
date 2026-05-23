@@ -2,6 +2,8 @@
 
 An end-to-end multi-agent system for ecommerce brands that automatically generates product marketing videos and images from a product page URL.
 
+The current demo build is tuned for reliable handoff: image generation is best-effort via Pollinations, and when that provider throttles or returns `402 Payment Required`, the workflow switches to a polished local mockup so the run still completes.
+
 ---
 
 ## 🏗️ Architecture Overview
@@ -65,7 +67,7 @@ An end-to-end multi-agent system for ecommerce brands that automatically generat
 | Product Research | `llama-3.3-70b` via Groq | Scrapes + understands product URL |
 | Creative Strategy | `llama-3.3-70b` via Groq | Generates hooks, audiences, visual themes |
 | Prompt Generation | `llama-3.3-70b` via Groq | Crafts optimized image/video prompts |
-| Image Generation | `FLUX.1-schnell` via Together AI | Generates 5 product images |
+| Image Generation | Pollinations (best effort) + local mockup fallback | Generates 5 product images without blocking the workflow |
 | Video Generation | `CogVideoX-5b` via Replicate / `AnimateDiff` via HF | Generates 2 short videos |
 | Review / Critic | `llama-3.3-70b` via Groq | Evaluates quality, flags issues, retries |
 
@@ -75,7 +77,7 @@ An end-to-end multi-agent system for ecommerce brands that automatically generat
 
 - **Orchestration**: LangGraph (state machine agent graphs)
 - **LLM Inference**: Groq API (free tier) — `llama-3.3-70b-versatile`
-- **Image Generation**: Together AI FLUX.1-schnell (free credits) + Stable Diffusion XL via HuggingFace
+- **Image Generation**: Pollinations (primary), Hugging Face / Stability AI fallbacks, and a polished local mockup fallback when the public API throttles
 - **Video Generation**: CogVideoX-5b via Replicate OR AnimateDiff via local diffusers
 - **Web Scraping**: `crawl4ai` + `BeautifulSoup4`
 - **Backend API**: FastAPI + Celery + Redis (async job queue)
@@ -127,13 +129,12 @@ cp .env.example .env
 # Edit .env with your API keys
 ```
 
-Required keys (all have free tiers):
+Required keys (only the LLM / optional fallback providers are needed for the current demo):
 
 ```env
 GROQ_API_KEY=           # https://console.groq.com (free)
-TOGETHER_API_KEY=       # https://api.together.xyz (free $25 credits)
-REPLICATE_API_KEY=      # https://replicate.com (free credits)
-HF_TOKEN=               # https://huggingface.co (free)
+HF_TOKEN=               # https://huggingface.co (optional; may not resolve on some free hosts)
+REPLICATE_API_KEY=      # https://replicate.com (optional)
 
 # Optional / provider-specific keys
 STABILITY_API_KEY=      # https://platform.stability.ai (optional)
@@ -214,12 +215,13 @@ VITE_API_URL=https://YOUR_RENDER_BACKEND.onrender.com
 
 ```env
 GROQ_API_KEY=
-TOGETHER_API_KEY=
 REPLICATE_API_KEY=
 HF_TOKEN=
 # Optional
 STABILITY_API_KEY=
 STABILITY_API_URL=
+INLINE_WORKFLOW=1
+OUTPUT_DIR=/var/data/outputs
 ```
 
 4. Confirm the API is live:
@@ -229,8 +231,10 @@ GET https://YOUR_RENDER_BACKEND.onrender.com/health
 ```
 
 Notes:
+- Pollinations is treated as best-effort. If it returns `402 Payment Required` or the host cannot reach the provider, the code generates a polished local mockup and continues instead of failing the job.
 - Outputs are stored in a Render disk at `/var/data/outputs` and served from `/outputs/*`.
 - Bulk CSV requires Celery; the Render start command runs a worker alongside the API for the demo.
+- For handoff, keep the retry cap at one loop so the review stage can finalize cleanly even if a public image provider is throttled.
 
 ---
 
