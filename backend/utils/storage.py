@@ -82,6 +82,15 @@ def persist_workflow_state(state) -> None:
         if scores:
             review_score = round(sum(scores) / len(scores), 3)
 
+    def _serialize(obj):
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump(mode="json")
+        if isinstance(obj, dict):
+            return {k: _serialize(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_serialize(v) for v in obj]
+        return obj
+
     payload = {
         "id": _get_field(state, "job_id"),
         "product_url": _get_field(state, "url"),
@@ -90,21 +99,13 @@ def persist_workflow_state(state) -> None:
             if _get_field(state, "product_data")
             else (_get_field(state, "brand_name") or "")
         ),
-        "research_data": (
-            _get_field(state, "product_data").model_dump(mode="json")
-            if _get_field(state, "product_data")
-            else None
-        ),
-        "marketing_strategy": (
-            _get_field(state, "creative_strategy").model_dump(mode="json")
-            if _get_field(state, "creative_strategy")
-            else None
-        ),
+        "research_data": _serialize(_get_field(state, "product_data")) if _get_field(state, "product_data") else None,
+        "marketing_strategy": _serialize(_get_field(state, "creative_strategy")) if _get_field(state, "creative_strategy") else None,
         "image_urls": image_urls,
         "video_urls": video_urls,
         "review_summary": review_report.summary if review_report else None,
         "review_score": review_score,
-        "raw_state": state.model_dump(mode="json") if hasattr(state, "model_dump") else (state if isinstance(state, dict) else None),
+        "raw_state": _serialize(state) if isinstance(state, dict) else (state.model_dump(mode="json") if hasattr(state, "model_dump") else None),
     }
 
     try:

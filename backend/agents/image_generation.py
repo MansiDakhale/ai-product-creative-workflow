@@ -68,11 +68,18 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
 
         # ── Try 1: Pollinations (no auth) ───────────────────────────────
         if not image_bytes:
-            try:
-                image_bytes = await _generate_pollinations(img_prompt)
-                model_used = "Pollinations"
-            except Exception as e:
-                logger.warning("pollinations_failed", index=img_prompt.index, error=str(e))
+            for attempt in range(3):
+                try:
+                    image_bytes = await _generate_pollinations(img_prompt)
+                    model_used = "Pollinations"
+                    break
+                except Exception as e:
+                    logger.warning(
+                        "pollinations_failed",
+                        index=img_prompt.index,
+                        attempt=attempt + 1,
+                        error=str(e),
+                    )
 
         # ── Try 2: HuggingFace Inference API (SDXL) ───────────────────────
         if hf_token and not image_bytes:
