@@ -83,8 +83,15 @@ def persist_workflow_state(state) -> None:
             review_score = round(sum(scores) / len(scores), 3)
 
     def _serialize(obj):
+        import datetime
+        import enum
+
         if hasattr(obj, "model_dump"):
             return obj.model_dump(mode="json")
+        if isinstance(obj, enum.Enum):
+            return obj.value
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
         if isinstance(obj, dict):
             return {k: _serialize(v) for k, v in obj.items()}
         if isinstance(obj, (list, tuple)):
