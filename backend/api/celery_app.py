@@ -104,6 +104,7 @@ def process_single_url(
         # Import here to avoid circular imports at module level
         from graph import run_workflow
         from utils.progress import set_progress_callback, clear_progress_callback
+        from utils.storage import persist_workflow_state
 
         def on_progress(jid: str, step: str, pct: int):
             if jid == job_id:
@@ -130,6 +131,7 @@ def process_single_url(
             clear_progress_callback()
 
         update_progress("completed", 100)
+        persist_workflow_state(final_state)
         result = final_state.model_dump(mode="json")
         logger.info("task_completed", job_id=job_id)
         return result

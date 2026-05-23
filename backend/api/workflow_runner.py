@@ -39,6 +39,7 @@ def run_workflow_sync(
     """Execute workflow in-process and persist status to Celery's Redis result backend."""
     from graph import run_workflow
     from utils.progress import set_progress_callback, clear_progress_callback
+    from utils.storage import persist_workflow_state
 
     def on_progress(jid: str, step: str, pct: int):
         if jid == job_id:
@@ -103,6 +104,7 @@ def run_workflow_sync(
                 result = json.loads(json.dumps(final_state, default=str))
             except Exception:
                 result = {"state": str(final_state)}
+        persist_workflow_state(final_state)
         set_job_progress(job_id, "completed", 100)
         celery_app.backend.store_result(job_id, result, states.SUCCESS)
         if batch_id:

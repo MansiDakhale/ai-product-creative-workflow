@@ -21,6 +21,7 @@ from PIL import Image
 import io
 
 from models.schemas import WorkflowState, GeneratedImage, JobStatus
+from utils.blob_storage import upload_bytes
 
 logger = structlog.get_logger()
 
@@ -106,10 +107,20 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
         img = Image.open(io.BytesIO(image_bytes))
         img.save(file_path, format="PNG")
 
+        public_url = None
+        try:
+            public_url = await upload_bytes(
+                image_bytes,
+                f"{state.job_id}/images/{file_name}",
+                "image/png",
+            )
+        except Exception as e:
+            logger.warning("blob_upload_failed", index=img_prompt.index, error=str(e))
+
         generated.append(GeneratedImage(
             index=img_prompt.index,
             file_path=str(file_path),
-            url=f"/outputs/{state.job_id}/images/{file_name}",
+            url=public_url or f"/outputs/{state.job_id}/images/{file_name}",
             prompt_used=img_prompt.prompt,
             model=model_used,
             width=img.width,

@@ -15,6 +15,7 @@ import structlog
 from pathlib import Path
 
 from models.schemas import WorkflowState, GeneratedVideo, JobStatus
+from utils.blob_storage import upload_bytes
 
 logger = structlog.get_logger()
 
@@ -79,10 +80,20 @@ async def run_video_generation(state: WorkflowState) -> WorkflowState:
         with open(file_path, "wb") as f:
             f.write(video_bytes)
 
+        public_url = None
+        try:
+            public_url = await upload_bytes(
+                video_bytes,
+                f"{state.job_id}/videos/{file_name}",
+                "video/mp4",
+            )
+        except Exception as e:
+            logger.warning("blob_upload_failed", index=vid_prompt.index, error=str(e))
+
         generated.append(GeneratedVideo(
             index=vid_prompt.index,
             file_path=str(file_path),
-            url=f"/outputs/{state.job_id}/videos/{file_name}",
+            url=public_url or f"/outputs/{state.job_id}/videos/{file_name}",
             prompt_used=vid_prompt.prompt,
             model=model_used,
             duration_seconds=float(vid_prompt.duration_seconds),
