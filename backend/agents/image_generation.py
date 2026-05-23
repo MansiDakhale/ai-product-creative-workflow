@@ -3,7 +3,8 @@ agents/image_generation.py
 Agent 4: Image Generation Workflow
 
 Generates 5 product marketing images using external AI image generation APIs.
-Primary: Hugging Face Inference API (SDXL)
+Primary: Pollinations (no auth)
+Fallback: Hugging Face Inference API (SDXL)
 Fallback: Stability AI (if configured)
 """
 
@@ -12,6 +13,7 @@ import os
 import time
 import base64
 import httpx
+import urllib.parse
 import asyncio
 import structlog
 from pathlib import Path
@@ -27,6 +29,9 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# Pollinations (no auth)
+POLLINATIONS_URL = "https://image.pollinations.ai/p"
+
 # HuggingFace Inference API
 HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
 # Stability AI generation endpoint (used when `STABILITY_API_KEY` is set)
@@ -38,7 +43,7 @@ STABILITY_API_URL = os.getenv("STABILITY_API_URL", "https://api.stability.ai/v2b
 async def run_image_generation(state: WorkflowState) -> WorkflowState:
     """
     Agent 4: Generate 5 product marketing images.
-    Tries HuggingFace Inference API first, then Stability AI.
+    Tries Pollinations first, then HuggingFace, then Stability AI.
     """
     if not state.generated_prompts:
         state.error = "Cannot generate images: no prompts available"
@@ -60,7 +65,15 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
 
         image_bytes = None
 
-        # ── Try 1: HuggingFace Inference API (SDXL) ───────────────────────
+        # ── Try 1: Pollinations (no auth) ───────────────────────────────
+        if not image_bytes:
+            try:
+                image_bytes = await _generate_pollinations(img_prompt)
+                model_used = "Pollinations"
+            except Exception as e:
+                logger.warning("pollinations_failed", index=img_prompt.index, error=str(e))
+
+        # ── Try 2: HuggingFace Inference API (SDXL) ───────────────────────
         if hf_token and not image_bytes:
             try:
                 image_bytes = await _generate_huggingface(img_prompt, hf_token)
@@ -68,7 +81,7 @@ async def run_image_generation(state: WorkflowState) -> WorkflowState:
             except Exception as e:
                 logger.warning("hf_failed", index=img_prompt.index, error=str(e))
 
-        # ── Try 2: Stability AI ──────────────────────────────
+        # ── Try 3: Stability AI ──────────────────────────────
         if stability_key and not image_bytes:
             try:
                 image_bytes = await _generate_stability(img_prompt, stability_key)
@@ -161,6 +174,18 @@ async def _generate_huggingface(img_prompt, hf_token: str) -> bytes:
                 },
             },
         )
+        resp.raise_for_status()
+        return resp.content
+
+
+async def _generate_pollinations(img_prompt) -> bytes:
+    """Generate image using Pollinations (no auth required)."""
+    from utils.http_client import make_async_client
+
+    encoded_prompt = urllib.parse.quote(img_prompt.prompt)
+    url = f"{POLLINATIONS_URL}/{encoded_prompt}?width=1024&height=1024&seed=42"
+    async with make_async_client(timeout=60) as client:
+        resp = await client.get(url)
         resp.raise_for_status()
         return resp.content
 
