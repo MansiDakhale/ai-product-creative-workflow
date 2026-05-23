@@ -222,7 +222,7 @@ async def _review_asset(
             pass   # Fall back to text-only
 
     try:
-        model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
         fallback_model = os.getenv("GROQ_FALLBACK_MODEL")
 
         try:

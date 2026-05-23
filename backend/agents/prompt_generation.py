@@ -145,7 +145,7 @@ async def run_prompt_generation(state: WorkflowState, groq_client) -> WorkflowSt
 
     # ── Generate image prompts ──────────────────────────────────────────────
     try:
-        model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
         fallback_model = os.getenv("GROQ_FALLBACK_MODEL")
 
         try:

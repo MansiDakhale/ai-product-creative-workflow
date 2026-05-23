@@ -117,7 +117,7 @@ async def run_creative_strategy(state: WorkflowState, groq_client) -> WorkflowSt
     try:
         user_prompt = build_strategy_prompt(state.product_data, state.extra_instructions)
 
-        model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        model = os.getenv("GROQ_MODEL", "gemma2-9b-it")
         fallback_model = os.getenv("GROQ_FALLBACK_MODEL")
 
         try:
