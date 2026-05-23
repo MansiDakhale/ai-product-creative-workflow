@@ -66,6 +66,13 @@ Given the product context and the image, evaluate:
 Return JSON with the same structure as instructed."""
 
 
+def _has_placeholder_assets(state: WorkflowState) -> bool:
+    """Avoid retry loops when placeholders were used due to upstream failures."""
+    if any(img.model == "placeholder" for img in state.generated_images):
+        return True
+    return any("placeholder" in (vid.model or "").lower() for vid in state.generated_videos)
+
+
 def build_critic_prompt(product_data, creative_strategy, asset_type: str,
                          asset_index: int, prompt_used: str) -> str:
     return f"""Evaluate this {asset_type} for product marketing:
@@ -148,6 +155,8 @@ async def run_review_critic(state: WorkflowState, groq_client) -> WorkflowState:
     all_passed = all(r.passed for r in all_reviews)
     avg_score = sum(r.overall_score for r in all_reviews) / max(len(all_reviews), 1)
     needs_retry = not all_passed and state.retry_count < state.max_retries
+    if _has_placeholder_assets(state):
+        needs_retry = False
 
     # Update prompts with revised versions if needed
     if needs_retry:
@@ -159,6 +168,8 @@ async def run_review_critic(state: WorkflowState, groq_client) -> WorkflowState:
         f"{len([r for r in all_reviews if r.passed])}/{len(all_reviews)} assets passed. "
         f"{'Retry recommended.' if needs_retry else 'All assets approved.'}"
     )
+    if _has_placeholder_assets(state):
+        summary += " Placeholder assets detected; skipping retries."
     if issues_found:
         summary += f" Key issues: {'; '.join(issues_found[:3])}"
 
