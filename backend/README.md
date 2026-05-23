@@ -4,7 +4,7 @@ This document explains environment variables and behavior added to handle LLM mo
 
 Environment variables
 
-- `GROQ_MODEL`: primary Groq model id used by agents (default: `llama-3.3-70b-specdec`).
+- `GROQ_MODEL`: primary Groq model id used by agents (default: `llama-3.3-70b-versatile`).
 - `GROQ_FALLBACK_MODEL`: optional fallback Groq model id. When set, agents will attempt the fallback model once if the primary returns a rate-limit error.
 
 Behavior
@@ -25,7 +25,7 @@ Recommendations
 
 Example `.env`
 
-GROQ_MODEL=llama-3.3-70b-specdec
+GROQ_MODEL=llama-3.3-70b-versatile
 GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
 
 This file is intentionally short — see agent source files for implementation details and exact log keys.
