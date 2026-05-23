@@ -132,13 +132,13 @@ async def node_finalize(state: WorkflowState) -> WorkflowState:
 
 def should_retry(state: WorkflowState) -> Literal["image_generation", "finalize"]:
     """
-    After review: if retry is recommended and budget remains, loop back.
+    After review: if retry is recommended and this is the first attempt, loop back.
     Otherwise, proceed to finalization.
     """
     if (
         state.review_report
         and state.review_report.retry_recommended
-        and state.retry_count < state.max_retries
+        and state.retry_count < 1
     ):
         logger.info(
             "retry_triggered",
@@ -148,6 +148,14 @@ def should_retry(state: WorkflowState) -> Literal["image_generation", "finalize"
         state.retry_count += 1
         state.status = JobStatus.RETRYING
         return "image_generation"
+
+    if state.review_report and state.review_report.retry_recommended:
+        logger.info(
+            "retry_limit_reached",
+            job_id=state.job_id,
+            retry_count=state.retry_count,
+            max_retries=1,
+        )
     return "finalize"
 
 
