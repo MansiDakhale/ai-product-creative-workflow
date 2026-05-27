@@ -1,4 +1,4 @@
-# 🛍️ AI Product Creative Generation Workflow
+#  AI Product Creative Generation Workflow
 
 An end-to-end multi-agent system for ecommerce brands that automatically generates product marketing videos and images from a product page URL.
 
@@ -6,7 +6,7 @@ The current demo build is tuned for reliable handoff: image generation is best-e
 
 ---
 
-## 🏗️ Architecture Overview
+##  Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -60,7 +60,7 @@ The current demo build is tuned for reliable handoff: image generation is best-e
 
 ---
 
-## 🤖 Agent Details
+##  Agent Details
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
@@ -73,7 +73,7 @@ The current demo build is tuned for reliable handoff: image generation is best-e
 
 ---
 
-## 📦 Tech Stack
+##  Tech Stack
 
 - **Orchestration**: LangGraph (state machine agent graphs)
 - **LLM Inference**: Groq API (free tier) — `llama-3.3-70b-versatile`
@@ -86,7 +86,7 @@ The current demo build is tuned for reliable handoff: image generation is best-e
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 
@@ -189,7 +189,7 @@ App runs at: **http://localhost:5173**
 
 ---
 
-## ☁️ Deployment (Vercel + Render)
+##  Deployment (Vercel + Render)
 
 Minimal working deployment using a single Render service (API + Celery worker in one process) plus Redis.
 
@@ -238,7 +238,7 @@ Notes:
 
 ---
 
-## 🐳 Docker (Recommended)
+##  Docker (Recommended)
 
 ```bash
 docker-compose up --build
@@ -260,7 +260,7 @@ If running the backend locally (not in Docker), keep `REDIS_URL=redis://localhos
 
 ---
 
-## 📋 API Endpoints
+##  API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -308,7 +308,7 @@ https://example.com/product-2,BrandB,normal,Emphasize everyday use
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 ai-product-creative-workflow/
@@ -344,7 +344,7 @@ ai-product-creative-workflow/
 
 ---
 
-## 🔄 Agent Flow (LangGraph State Machine)
+##  Agent Flow (LangGraph State Machine)
 
 ```python
 # Simplified state machine
@@ -367,7 +367,7 @@ Each agent node passes a shared `WorkflowState` object containing:
 
 ---
 
-## 🧪 Evaluation Criteria for Review Agent
+##  Evaluation Criteria for Review Agent
 
 The Critic Agent scores each creative on:
 
@@ -383,7 +383,7 @@ If score < 0.7, prompts are automatically revised and regenerated (max 2 retries
 
 ---
 
-## 🔧 Alternative Free Inference Options
+##  Alternative Free Inference Options
 
 | Service | Models Available | Free Tier |
 |---------|-----------------|-----------|
@@ -395,7 +395,7 @@ If score < 0.7, prompts are automatically revised and regenerated (max 2 retries
 
 ---
 
-## 📊 Sample Output
+##  Sample Output
 
 After processing a URL, you receive:
 - `product_research.json` — structured product data
@@ -406,10 +406,10 @@ After processing a URL, you receive:
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 PRs welcome. See `CONTRIBUTING.md` for guidelines.
 
-## 📄 License
+##  License
 
 MIT
