@@ -193,6 +193,10 @@ App runs at: **http://localhost:5173**
 
 Minimal working deployment using a single Render service (API + Celery worker in one process) plus Redis.
 
+Links: drive.google.com/file/d/1-1EsGJ6c7Vw4fe33fo3_hNB6kyECviLB/view?usp=sharing
+
+drive.google.com/file/d/1_jejyBsIOeBx7PCxoWXmSoEhpiQ9vbWg/view?usp=sharing
+
 ### Frontend (Vercel)
 
 1. Import the repo in Vercel.
